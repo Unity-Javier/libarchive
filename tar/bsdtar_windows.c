@@ -66,7 +66,7 @@ permissive_name(const char *name)
 	int unc;
 
 	len = (DWORD)strlen(name);
-	wn = malloc((len + 1) * sizeof(wchar_t));
+	wn = (wchar_t*) malloc((len + 1) * sizeof(wchar_t));
 	if (wn == NULL)
 		return (NULL);
 	l = MultiByteToWideChar(CP_ACP, 0, name, len, wn, len);
@@ -82,7 +82,7 @@ permissive_name(const char *name)
 		free(wn);
 		return (NULL);
 	}
-	wnp = malloc(l * sizeof(wchar_t));
+	wnp = (wchar_t*) malloc(l * sizeof(wchar_t));
 	if (wnp == NULL) {
 		free(wn);
 		return (NULL);
@@ -129,7 +129,7 @@ permissive_name(const char *name)
 	}
 
 	alloclen = slen = 4 + (unc * 4) + len + 1;
-	ws = wsp = malloc(slen * sizeof(wchar_t));
+	ws = wsp = (wchar_t*) malloc(slen * sizeof(wchar_t));
 	if (ws == NULL) {
 		free(wn);
 		return (NULL);

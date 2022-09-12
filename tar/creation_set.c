@@ -132,10 +132,10 @@ decompose_alias(const char *suffix)
 static void
 _cset_add_filter(struct creation_set *cset, int program, const char *filter)
 {
-	struct filter_set *new_ptr;
+	struct creation_set::filter_set *new_ptr;
 	char *new_filter;
 
-	new_ptr = (struct filter_set *)realloc(cset->filters,
+	new_ptr = (struct creation_set::filter_set *)realloc(cset->filters,
 	    sizeof(*cset->filters) * (cset->filter_count + 1));
 	if (new_ptr == NULL)
 		lafe_errc(1, 0, "No memory");
@@ -216,7 +216,7 @@ cset_get_format(struct creation_set *cset)
 }
 
 static void
-_cleanup_filters(struct filter_set *filters, int count)
+_cleanup_filters(struct creation_set::filter_set *filters, int count)
 {
 	int i;
 
@@ -239,7 +239,7 @@ cset_free(struct creation_set *cset)
 struct creation_set *
 cset_new(void)
 {
-	return calloc(1, sizeof(struct creation_set));
+	return (struct creation_set*) calloc(1, sizeof(struct creation_set));
 }
 
 /*
@@ -248,7 +248,7 @@ cset_new(void)
 int
 cset_auto_compress(struct creation_set *cset, const char *filename)
 {
-	struct filter_set *old_filters;
+	struct creation_set::filter_set *old_filters;
 	char *name, *p;
 	const char *code;
 	int old_filter_count;
@@ -287,20 +287,20 @@ cset_auto_compress(struct creation_set *cset, const char *filename)
 			break;
 		/* Replace the suffix. */
 		*p = '\0';
-		name = realloc(name, strlen(name) + strlen(code) + 1);
+		name = (char*) realloc(name, strlen(name) + strlen(code) + 1);
 		if (name == NULL)
 			lafe_errc(1, 0, "No memory");
 		strcat(name, code);
 	}
 	free(name);
 	if (cset->filters) {
-		struct filter_set *v;
+		struct creation_set::filter_set *v;
 		int i, r;
 
 		/* Release previous filters. */
 		_cleanup_filters(old_filters, old_filter_count);
 
-		v = malloc(sizeof(*v) * cset->filter_count);
+		v = (struct creation_set::filter_set *) malloc(sizeof(*v) * cset->filter_count);
 		if (v == NULL)
 			lafe_errc(1, 0, "No memory");
 		/* Reverse filter sequence. */

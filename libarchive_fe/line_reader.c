@@ -60,7 +60,7 @@ lafe_line_reader(const char *pathname, int nullSeparator)
 {
 	struct lafe_line_reader *lr;
 
-	lr = calloc(1, sizeof(*lr));
+	lr = (struct lafe_line_reader*) calloc(1, sizeof(*lr));
 	if (lr == NULL)
 		lafe_errc(1, ENOMEM, "Can't open %s", pathname);
 
@@ -133,7 +133,7 @@ lafe_line_reader_next(struct lafe_line_reader *lr)
 			 * Allocate one extra byte to allow terminating
 			 * the buffer.
 			 */
-			p = realloc(lr->buff, new_buff_size + 1);
+			p = (char*) realloc(lr->buff, new_buff_size + 1);
 			if (p == NULL)
 				lafe_errc(1, ENOMEM,
 				    "Line too long in %s", lr->pathname);

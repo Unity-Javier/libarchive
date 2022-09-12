@@ -149,7 +149,7 @@ set_writer_options(struct bsdtar *bsdtar, struct archive *a)
 		size_t opt_len = strlen(writer_options) + 1;
 		char *p;
 		/* Set default write options. */
-		if ((p = malloc(module_len + opt_len)) == NULL)
+		if ((p = (char*) malloc(module_len + opt_len)) == NULL)
 			lafe_errc(1, errno, "Out of memory");
 		/* Prepend magic code to ignore options for
 		 * a format or filters which are not added to
@@ -181,7 +181,7 @@ set_reader_options(struct bsdtar *bsdtar, struct archive *a)
 		size_t opt_len = strlen(reader_options) + 1;
 		char *p;
 		/* Set default write options. */
-		if ((p = malloc(module_len + opt_len)) == NULL)
+		if ((p = (char*) malloc(module_len + opt_len)) == NULL)
 		if (p == NULL)
 			lafe_errc(1, errno, "Out of memory");
 		/* Prepend magic code to ignore options for
@@ -449,7 +449,7 @@ write_archive(struct archive *a, struct bsdtar *bsdtar)
 	bsdtar->buff_size += 16 * 1024;
 
 	/* Allocate a buffer for file data. */
-	if ((bsdtar->buff = malloc(bsdtar->buff_size)) == NULL)
+	if ((bsdtar->buff = (char*) malloc(bsdtar->buff_size)) == NULL)
 		lafe_errc(1, 0, "cannot allocate memory");
 
 	if ((bsdtar->resolver = archive_entry_linkresolver_new()) == NULL)

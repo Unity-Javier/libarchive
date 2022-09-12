@@ -129,7 +129,7 @@ safe_fprintf(FILE *f, const char *fmt, ...)
 			break;
 		}
 		free(fmtbuff_heap);
-		fmtbuff_heap = malloc(fmtbuff_length);
+		fmtbuff_heap = (char*) malloc(fmtbuff_length);
 
 		/* Reformat the result into the heap buffer if we can. */
 		if (fmtbuff_heap != NULL) {
@@ -310,7 +310,7 @@ set_chdir(struct bsdtar *bsdtar, const char *newdir)
 		char *old_pending = bsdtar->pending_chdir;
 		size_t old_len = strlen(old_pending);
         size_t new_len = old_len + strlen(newdir) + 2;
-		bsdtar->pending_chdir = malloc(new_len);
+		bsdtar->pending_chdir = (char*) malloc(new_len);
 		if (old_pending[old_len - 1] == '/')
 			old_pending[old_len - 1] = '\0';
 		if (bsdtar->pending_chdir != NULL)
@@ -633,7 +633,7 @@ passphrase_callback(struct archive *a, void *_client_data)
 	(void)a; /* UNUSED */
 
 	if (bsdtar->ppbuff == NULL) {
-		bsdtar->ppbuff = malloc(PPBUFF_SIZE);
+		bsdtar->ppbuff = (char*) malloc(PPBUFF_SIZE);
 		if (bsdtar->ppbuff == NULL)
 			lafe_errc(1, errno, "Out of memory");
 	}

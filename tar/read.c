@@ -77,6 +77,7 @@ __FBSDID("$FreeBSD: src/usr.bin/tar/read.c,v 1.40 2008/08/21 06:41:14 kientzle E
 
 #include "bsdtar.h"
 #include "err.h"
+#include "concurrentqueue.h"
 
 struct progress_data {
 	struct bsdtar *bsdtar;
@@ -192,7 +193,7 @@ read_archive(struct bsdtar *bsdtar, char mode, struct archive *writer)
 		size_t opt_len = strlen(reader_options) + 1;
 		char *p;
 		/* Set default read options. */
-		if ((p = malloc(module_len + opt_len)) == NULL)
+		if ((p = (char*) malloc(module_len + opt_len)) == NULL)
 			lafe_errc(1, errno, "Out of memory");
 		/* Prepend magic code to ignore options for
 		 * a format or  modules which are not added to
