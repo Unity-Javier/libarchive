@@ -713,6 +713,7 @@ __LA_DECL void archive_entry_linkify(struct archive_entry_linkresolver *,
     struct archive_entry **, struct archive_entry **);
 __LA_DECL struct archive_entry *archive_entry_partial_links(
     struct archive_entry_linkresolver *res, unsigned int *links);
+
 #ifdef __cplusplus
 }
 #endif

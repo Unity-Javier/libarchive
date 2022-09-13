@@ -77,7 +77,9 @@ __FBSDID("$FreeBSD: src/usr.bin/tar/read.c,v 1.40 2008/08/21 06:41:14 kientzle E
 
 #include "bsdtar.h"
 #include "err.h"
-#include "concurrentqueue.h"
+
+#include "write_multithreaded.h"
+#include <vector>
 
 struct progress_data {
 	struct bsdtar *bsdtar;
@@ -157,8 +159,7 @@ progress_func(void *cookie)
 /*
  * Handle 'x' and 't' modes.
  */
-static void
-read_archive(struct bsdtar *bsdtar, char mode, struct archive *writer)
+static void read_archive(struct bsdtar *bsdtar, char mode, struct archive *writer)
 {
 	struct progress_data	progress_data;
 	FILE			 *out;
@@ -250,6 +251,8 @@ read_archive(struct bsdtar *bsdtar, char mode, struct archive *writer)
 		_setmode(1, _O_BINARY);
 	}
 #endif
+
+	std::vector<FileData> files;
 
 	for (;;) {
 		/* Support --fast-read option */
@@ -369,7 +372,21 @@ read_archive(struct bsdtar *bsdtar, char mode, struct archive *writer)
 			if (bsdtar->flags & OPTFLAG_STDOUT)
 				r = archive_read_data_into_fd(a, 1);
 			else
-				r = archive_read_extract2(a, entry, writer);
+			{
+				const char* name = archive_entry_pathname(entry);
+				size_t size = strlen(name)+1;
+				char *fileName = (char*) malloc(sizeof(char)*size);
+				memcpy(fileName, name, sizeof(char) * size);
+				
+				size_t contentSize = archive_entry_size(entry);
+				char* fileContents = (char*)malloc(sizeof(char) * contentSize);
+				memset(fileContents, 0, sizeof(char)* contentSize);
+				int bytesRead = archive_read_data(a, fileContents, contentSize);
+
+				files.emplace_back(std::move(fileName), std::move(fileContents));
+
+				//r = archive_read_extract2(a, entry, writer);
+			}
 			if (r != ARCHIVE_OK) {
 				if (!bsdtar->verbose)
 					safe_fprintf(stderr, "%s", archive_entry_pathname(entry));
@@ -386,6 +403,7 @@ read_archive(struct bsdtar *bsdtar, char mode, struct archive *writer)
 		}
 	}
 
+	write_multithreaded(files);
 
 	r = archive_read_close(a);
 	if (r != ARCHIVE_OK)

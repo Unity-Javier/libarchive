@@ -134,7 +134,12 @@ copy_data(struct archive *ar, struct archive *aw)
 	extract = __archive_read_get_extract((struct archive_read *)ar);
 	if (extract == NULL)
 		return (ARCHIVE_FATAL);
+	int i = 0;
 	for (;;) {
+		i++;
+		if (i > 1)
+			printf("here\n");
+
 		r = archive_read_data_block(ar, &buff, &size, &offset);
 		if (r == ARCHIVE_EOF)
 			return (ARCHIVE_OK);
