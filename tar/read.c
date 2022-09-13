@@ -407,7 +407,7 @@ static void read_archive(struct bsdtar *bsdtar, char mode, struct archive *write
 
 	r = archive_read_close(a);
 	if (r != ARCHIVE_OK)
-		lafe_warnc(0, "%s", archive_error_string(a));
+		lafe_warnc(0, "%s", archive_error_string(a)); 
 	if (r <= ARCHIVE_WARN)
 		bsdtar->return_value = 1;
 
