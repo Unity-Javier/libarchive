@@ -82,7 +82,7 @@ int write_multithreaded(const std::vector<FileData> &files)
 		dirCount++;
 
 		IOCPFile curFile;
-		curFile.destinationFileSize = strlen(files[i].contents);
+		curFile.destinationFileSize = files[i].contentSize;
 		curFile.sourceContents = files[i].contents;
 		curFile.destinationPath = s2ws(files[i].path);
 
@@ -110,7 +110,8 @@ int write_multithreaded(const std::vector<FileData> &files)
 				{
 					if (!CreateDirectoryW(directories[i].c_str(), NULL))
 					{
-						printf("Error creating directory: '%S'\n", directories[i].c_str());
+						int lastError = GetLastError();
+						printf("Error creating directory: '%S', error: %d\n", directories[i].c_str(), lastError);
 					}
 				}
 			}
@@ -238,19 +239,6 @@ int write_multithreaded(const std::vector<FileData> &files)
 				for (int i = 0; i < actualDequeued; ++i)
 				{
 					
-					if (files[i].destinationFileSize > bufferSize)
-					{
-						delete[] buf;
-
-						bufferSize = files[i].destinationFileSize;
-						buf = new char[bufferSize];
-						memset(buf, 0, bufferSize * sizeof(char));
-					}
-					else
-					{
-						memset(buf, 0, bufferSize * sizeof(char));
-					}
-
 					/*
 					if (files[i].isDir)
 					{
@@ -297,7 +285,7 @@ int write_multithreaded(const std::vector<FileData> &files)
 
 					//Write it out
 					const BOOL writeResult = ::WriteFile(files[i].destinationHandle
-						, buf
+						, files[i].sourceContents
 						, files[i].destinationFileSize
 						, nullptr
 						, (LPOVERLAPPED) &files[i].destinationOverlapped);

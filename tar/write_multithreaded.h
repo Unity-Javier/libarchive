@@ -6,7 +6,8 @@ struct FileData
 {
 	const char* path;
 	const char* contents;
-	FileData(const char* filePath, const char* fileContents) : path(filePath), contents(fileContents)
+	const size_t contentSize;
+	FileData(const char* filePath, const char* fileContents, size_t fileSize) : path(filePath), contents(fileContents), contentSize(fileSize)
 	{
 
 	}

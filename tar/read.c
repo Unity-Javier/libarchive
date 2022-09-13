@@ -377,13 +377,16 @@ static void read_archive(struct bsdtar *bsdtar, char mode, struct archive *write
 				size_t size = strlen(name)+1;
 				char *fileName = (char*) malloc(sizeof(char)*size);
 				memcpy(fileName, name, sizeof(char) * size);
+
+				if (strstr(fileName, "1DAxisComposite"))
+					printf("here\n");
 				
 				size_t contentSize = archive_entry_size(entry);
 				char* fileContents = (char*)malloc(sizeof(char) * contentSize);
 				memset(fileContents, 0, sizeof(char)* contentSize);
 				int bytesRead = archive_read_data(a, fileContents, contentSize);
 
-				files.emplace_back(std::move(fileName), std::move(fileContents));
+				files.emplace_back(std::move(fileName), std::move(fileContents), contentSize);
 
 				//r = archive_read_extract2(a, entry, writer);
 			}
