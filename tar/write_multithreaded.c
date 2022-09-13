@@ -10,13 +10,13 @@
 #include <string_view>
 
 #define CREATE_THREADS 8
-#define READ_THREADS 4
+#define READ_THREADS 8
 //#define WRITE_THREADS 4
 #define CLOSE_THREADS 8
 #define NumberOfConcurrentThreads 4
 #define TOTAL_THREADS (CREATE_THREADS + READ_THREADS + /*WRITE_THREADS +*/ CLOSE_THREADS)
 
-#define CREATE_DIRECTORIES_THREADS 1
+#define CREATE_DIRECTORIES_THREADS 2
 
 struct IOCPFile
 {
@@ -55,13 +55,14 @@ int write_multithreaded(const std::vector<FileData> &files)
 	//find all files
 	std::thread programThreads[TOTAL_THREADS];
 
-	moodycamel::ConcurrentQueue <IOCPFile> createFileQueue;
-	moodycamel::ConcurrentQueue <IOCPFile> readFileQueue;
-	moodycamel::ConcurrentQueue <IOCPFile> writeFileQueue;
-	moodycamel::ConcurrentQueue <IOCPFile> closeFileQueue;
+	moodycamel::ConcurrentQueue <IOCPFile*> createFileQueue;
+	moodycamel::ConcurrentQueue <IOCPFile*> readFileQueue;
+	moodycamel::ConcurrentQueue <IOCPFile*> writeFileQueue;
+	moodycamel::ConcurrentQueue <IOCPFile*> closeFileQueue;
 	std::atomic<size_t> filesCreated = 0;
 	std::atomic<size_t> totalFilesRead = 0;
 	std::atomic<size_t> totalFilesClosed = 0;
+	std::atomic<size_t> totalDirectoriesCreated = 0;
 	size_t dirCount = 0;
 
 	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
@@ -77,17 +78,16 @@ int write_multithreaded(const std::vector<FileData> &files)
 		if (parentPathIndex != std::string::npos && directoryPaths.find(curPath.substr(0, parentPathIndex)) == directoryPaths.end())
 		{
 			directoryPaths.insert(curPath.substr(0, parentPathIndex));
+			dirCount++;
 		}
 
-		dirCount++;
-
-		IOCPFile curFile;
-		curFile.destinationFileSize = files[i].contentSize;
-		curFile.sourceContents = files[i].contents;
-		curFile.destinationPath = s2ws(files[i].path);
+		IOCPFile *curFile = new IOCPFile();
+		curFile->destinationFileSize = files[i].contentSize;
+		curFile->sourceContents = files[i].contents;
+		curFile->destinationPath = s2ws(files[i].path);
 
 		createFileQueue.enqueue(std::move(curFile));
-	}
+	} 
 
 	std::vector<std::wstring> dirsToSort(directoryPaths.begin(), directoryPaths.end());
 	std::sort(dirsToSort.begin(), dirsToSort.end());
@@ -100,23 +100,37 @@ int write_multithreaded(const std::vector<FileData> &files)
 	{
 		createDirectoriesThreads[i] = std::thread([&](size_t max)
 		{
-			std::vector<std::wstring> directories;
-			directories.resize(max);
-			size_t actualDequeued = directoryQueue.try_dequeue_bulk(directories.begin(), max);
-
-			if (actualDequeued > 0)
+			do 
 			{
-				for (size_t i = 0; i < actualDequeued; ++i)
+				std::vector<std::wstring> directories;
+				directories.resize(max);
+				size_t actualDequeued = directoryQueue.try_dequeue_bulk(directories.begin(), max);
+
+				if (actualDequeued > 0)
 				{
-					if (!CreateDirectoryW(directories[i].c_str(), NULL))
+					for (size_t i = 0; i < actualDequeued; ++i)
 					{
-						int lastError = GetLastError();
-						printf("Error creating directory: '%S', error: %d\n", directories[i].c_str(), lastError);
+						if (!CreateDirectoryW(directories[i].c_str(), NULL))
+						{
+							if(GetLastError() == ERROR_PATH_NOT_FOUND)
+								directoryQueue.enqueue(directories[i]);
+							else
+							{
+								printf("Could not create directory: %S\n", directories[i].c_str());
+								totalDirectoriesCreated++;
+							}
+						}
+						else
+						{
+							totalDirectoriesCreated++;
+						}
 					}
 				}
 			}
+			while (totalDirectoriesCreated != dirCount);
+			
 
-		}, createFileQueue.size_approx() / CREATE_DIRECTORIES_THREADS);
+		}, dirsToSort.size() / CREATE_DIRECTORIES_THREADS);
 	}
 
 	for (size_t i = 0; i < CREATE_DIRECTORIES_THREADS; ++i)
@@ -126,12 +140,11 @@ int write_multithreaded(const std::vector<FileData> &files)
 	{
 		programThreads[curThread] = std::thread([&](size_t max)
 		{
-			std::vector<IOCPFile> files;
+			std::vector<IOCPFile*> files;
 
 			size_t actualDequeued = 0;
 			do
 			{
-				files.clear();
 				files.resize(max);
 				actualDequeued = createFileQueue.try_dequeue_bulk(files.begin(), max);
 
@@ -180,8 +193,8 @@ int write_multithreaded(const std::vector<FileData> &files)
 					DWORD creationDisposition = CREATE_ALWAYS;
 					DWORD destinationFileFlagsAndAttributes = FILE_FLAG_OVERLAPPED;
 
-					files[i].destinationHandle = ::CreateFileW(
-						files[i].destinationPath.c_str(),
+					files[i]->destinationHandle = ::CreateFileW(
+						files[i]->destinationPath.c_str(),
 						GENERIC_READ | GENERIC_WRITE,
 						FILE_SHARE_READ,
 						nullptr,
@@ -191,22 +204,22 @@ int write_multithreaded(const std::vector<FileData> &files)
 
 					//printf("Creating file: %S\n", files[i].destinationPath.c_str());
 
-					if (files[i].destinationHandle == INVALID_HANDLE_VALUE)
+					if (files[i]->destinationHandle == INVALID_HANDLE_VALUE)
 					{
 						const DWORD lastError = ::GetLastError();
 						printf("Error creating destination file %d\n", lastError);
 					}
 
-					files[i].iocpDestinationHandle = ::CreateIoCompletionPort(
-						files[i].destinationHandle
+					files[i]->iocpDestinationHandle = ::CreateIoCompletionPort(
+						files[i]->destinationHandle
 						, NULL
 						, 0
 						, NumberOfConcurrentThreads);
 
 					//std::wstring sourcePathCopy = files[i].sourcePath;
-					if (!readFileQueue.enqueue(std::move(files[i])))
+					if (!readFileQueue.enqueue(files[i]))
 					{
-						printf("Error: Could not enqueue %S\n", files[i].destinationPath.c_str());
+						printf("Error: Could not enqueue %S\n", files[i]->destinationPath.c_str());
 					}
 					else
 					{
@@ -223,22 +236,17 @@ int write_multithreaded(const std::vector<FileData> &files)
 	{
 		programThreads[i] = std::thread([&readFileQueue, &createFileQueue, &closeFileQueue, &totalFilesRead](size_t max, size_t allFilesSize)
 		{
-			std::vector<IOCPFile> files;
-
-			size_t bufferSize = 4096;
-			char* buf = new char[bufferSize];
-			memset(buf, 0, bufferSize * sizeof(char));
+			std::vector<IOCPFile*> files;
 
 			size_t actualDequeued = 0;
+
 			do
 			{
-				files.clear();
 				files.resize(max);
 				actualDequeued = readFileQueue.try_dequeue_bulk(files.begin(), max);
 
 				for (int i = 0; i < actualDequeued; ++i)
 				{
-					
 					/*
 					if (files[i].isDir)
 					{
@@ -284,11 +292,11 @@ int write_multithreaded(const std::vector<FileData> &files)
 					*/
 
 					//Write it out
-					const BOOL writeResult = ::WriteFile(files[i].destinationHandle
-						, files[i].sourceContents
-						, files[i].destinationFileSize
+					const BOOL writeResult = ::WriteFile(files[i]->destinationHandle
+						, files[i]->sourceContents
+						, files[i]->destinationFileSize
 						, nullptr
-						, (LPOVERLAPPED) &files[i].destinationOverlapped);
+						, (LPOVERLAPPED) &files[i]->destinationOverlapped);
 
 					if (!writeResult)
 					{
@@ -298,7 +306,7 @@ int write_multithreaded(const std::vector<FileData> &files)
 							LPOVERLAPPED ovl = nullptr;
 							DWORD transferred = 0;
 							ULONG_PTR completionKey = 0;
-							const BOOL result = ::GetQueuedCompletionStatus(files[i].iocpDestinationHandle
+							const BOOL result = ::GetQueuedCompletionStatus(files[i]->iocpDestinationHandle
 								, &transferred
 								, &completionKey
 								, &ovl, INFINITE);
@@ -309,7 +317,7 @@ int write_multithreaded(const std::vector<FileData> &files)
 								continue;
 							}
 
-							if (files[i].destinationOverlapped.InternalHigh != transferred)
+							if (files[i]->destinationOverlapped.InternalHigh != transferred)
 								printf("Error: Size read mismatch\n");
 							//printf("Write %d bytes to %S\n", transferred, files[i].destinationPath.c_str());
 						}
@@ -328,17 +336,16 @@ int write_multithreaded(const std::vector<FileData> &files)
 		programThreads[i] = std::thread([&totalFilesClosed, &closeFileQueue, &totalFilesRead](size_t max, size_t allFilesSize, size_t dirCount)
 		{
 			size_t actualDequeued = 0;
-			std::vector<IOCPFile> files;
+			std::vector<IOCPFile*> files;
 
 			do
 			{
-				files.clear();
 				files.resize(max);
 				actualDequeued = closeFileQueue.try_dequeue_bulk(files.begin(), max);
 				for (size_t i = 0; i < actualDequeued; ++i)
 				{
-					::CloseHandle(files[i].destinationHandle);
-					::CloseHandle(files[i].iocpDestinationHandle);
+					::CloseHandle(files[i]->destinationHandle);
+					::CloseHandle(files[i]->iocpDestinationHandle);
 					totalFilesClosed++;
 				}
 			} while (totalFilesClosed < (allFilesSize - dirCount));
