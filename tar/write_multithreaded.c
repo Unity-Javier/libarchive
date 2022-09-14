@@ -10,11 +10,10 @@
 #include <string_view>
 
 #define CREATE_THREADS 8
-#define READ_THREADS 8
-//#define WRITE_THREADS 4
+#define WRITE_THREADS 8
 #define CLOSE_THREADS 8
 #define NumberOfConcurrentThreads 4
-#define TOTAL_THREADS (CREATE_THREADS + READ_THREADS + /*WRITE_THREADS +*/ CLOSE_THREADS)
+#define TOTAL_THREADS (CREATE_THREADS + WRITE_THREADS + CLOSE_THREADS)
 
 #define CREATE_DIRECTORIES_THREADS 2
 
@@ -39,7 +38,29 @@ struct IOCPFile
 		destinationOverlapped.Offset = 0xFFFFFFFF; //Write to end of file
 		destinationOverlapped.OffsetHigh = 0xFFFFFFFF; //Write to end of file
 	}
+
+	IOCPFile(IOCPFile&& other) noexcept :
+			destinationHandle(other.destinationHandle)
+		,	iocpDestinationHandle(other.destinationHandle)
+		,	destinationPath(std::move(other.destinationPath))
+		,	destinationFileSize(other.destinationFileSize)
+		,	sourceContents(std::move(other.sourceContents))
+		,	destinationOverlapped(std::move(destinationOverlapped))
+	{
+
+	}
+
+	void operator = (IOCPFile&& other)
+	{
+		destinationHandle = other.destinationHandle;
+		iocpDestinationHandle = other.destinationHandle;
+		destinationPath = std::move(other.destinationPath);
+		destinationFileSize = other.destinationFileSize;
+		sourceContents = std::move(other.sourceContents);
+		destinationOverlapped = std::move(destinationOverlapped);
+	}
 };
+
 
 std::wstring s2ws(const std::string& str)
 {
@@ -56,16 +77,17 @@ int write_multithreaded(const std::vector<FileData> &files)
 	std::thread programThreads[TOTAL_THREADS];
 
 	moodycamel::ConcurrentQueue <IOCPFile*> createFileQueue;
-	moodycamel::ConcurrentQueue <IOCPFile*> readFileQueue;
-	moodycamel::ConcurrentQueue <IOCPFile*> writeFileQueue;
+	moodycamel::ConcurrentQueue <IOCPFile*> writeFileQueue(files.size());
 	moodycamel::ConcurrentQueue <IOCPFile*> closeFileQueue;
+
 	std::atomic<size_t> filesCreated = 0;
 	std::atomic<size_t> totalFilesRead = 0;
 	std::atomic<size_t> totalFilesClosed = 0;
 	std::atomic<size_t> totalDirectoriesCreated = 0;
 	size_t dirCount = 0;
 
-	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+	//std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
+
 	std::set<std::wstring> directoryPaths;
 
 	moodycamel::ConcurrentQueue<std::wstring> directoryQueue;
@@ -138,7 +160,7 @@ int write_multithreaded(const std::vector<FileData> &files)
 
 	for (size_t curThread = 0; curThread < CREATE_THREADS; ++curThread)
 	{
-		programThreads[curThread] = std::thread([&](size_t max)
+		programThreads[curThread] = std::thread([&filesCreated, &createFileQueue, &writeFileQueue](size_t max, size_t curThread)
 		{
 			std::vector<IOCPFile*> files;
 
@@ -150,46 +172,6 @@ int write_multithreaded(const std::vector<FileData> &files)
 
 				for (size_t i = 0; i < actualDequeued; ++i)
 				{
-					/*
-					if (files[i].sourcePath.size() == 0)
-						continue;
-					
-					DWORD sourceFileFlagsAndAttributes = FILE_FLAG_OVERLAPPED;
-					if (files[i].isDir)
-						sourceFileFlagsAndAttributes |= FILE_FLAG_BACKUP_SEMANTICS;
-
-					files[i].sourceHandle = ::CreateFileW(
-						files[i].sourcePath.c_str(),
-						GENERIC_READ,
-						FILE_SHARE_READ,
-						nullptr,
-						OPEN_EXISTING,
-						sourceFileFlagsAndAttributes,
-						nullptr);
-
-					if (files[i].sourceHandle == INVALID_HANDLE_VALUE)
-					{
-						const DWORD lastError = ::GetLastError();
-						printf("Error: opening source file");
-					}
-
-					files[i].iocpSourceHandle = ::CreateIoCompletionPort(
-						files[i].sourceHandle
-						, NULL
-						, 0
-						, NumberOfConcurrentThreads);
-
-					if (files[i].isDir)
-						destinationFileFlagsAndAttributes |= FILE_FLAG_BACKUP_SEMANTICS;
-
-					
-					//We created directories before calling here, so 
-					//we assume all directories already exist, and we just
-					//OPEN_EXISTING instead
-					if (files[i].isDir)
-						creationDisposition = OPEN_EXISTING;
-					*/
-
 					DWORD creationDisposition = CREATE_ALWAYS;
 					DWORD destinationFileFlagsAndAttributes = FILE_FLAG_OVERLAPPED;
 
@@ -214,27 +196,21 @@ int write_multithreaded(const std::vector<FileData> &files)
 						files[i]->destinationHandle
 						, NULL
 						, 0
-						, NumberOfConcurrentThreads);
+						, 0);
 
-					//std::wstring sourcePathCopy = files[i].sourcePath;
-					if (!readFileQueue.enqueue(files[i]))
-					{
-						printf("Error: Could not enqueue %S\n", files[i]->destinationPath.c_str());
-					}
+					if (!writeFileQueue.try_enqueue(std::move(files[i])))
+						printf("Error: Could not enqueue files\n");
 					else
-					{
-						//printf("Queued %S\n", sourcePathCopy.c_str());
 						filesCreated++;
-					}
 				}
 			} while (actualDequeued != 0 || createFileQueue.size_approx() > 0);
 
-		}, files.size() / CREATE_THREADS);
+		}, files.size() / (CREATE_THREADS), curThread);  
 	}
 
-	for (int i = CREATE_THREADS; i < CREATE_THREADS + READ_THREADS; ++i)
+	for (int i = CREATE_THREADS; i < CREATE_THREADS + WRITE_THREADS; ++i)
 	{
-		programThreads[i] = std::thread([&readFileQueue, &createFileQueue, &closeFileQueue, &totalFilesRead](size_t max, size_t allFilesSize)
+		programThreads[i] = std::thread([&totalFilesRead, &writeFileQueue, &closeFileQueue](size_t max, size_t allFilesSize, int curThread)
 		{
 			std::vector<IOCPFile*> files;
 
@@ -243,54 +219,10 @@ int write_multithreaded(const std::vector<FileData> &files)
 			do
 			{
 				files.resize(max);
-				actualDequeued = readFileQueue.try_dequeue_bulk(files.begin(), max);
+				actualDequeued = writeFileQueue.try_dequeue_bulk(files.begin(), max);
 
 				for (int i = 0; i < actualDequeued; ++i)
 				{
-					/*
-					if (files[i].isDir)
-					{
-						//printf("Skipping %S\n", files[i].sourcePath.c_str());
-						totalFilesRead++;
-						continue;
-					}
-
-					const BOOL result = ::ReadFile(
-						files[i].sourceHandle
-						, (void*)buf
-						, files[i].sourceFileSize
-						, nullptr
-						, (LPOVERLAPPED) &files[i].sourceOverlapped);
-
-					//printf("ReadFile: %S\n", files[i].sourcePath.c_str());
-
-					if (!result)
-					{
-						const DWORD lastError = ::GetLastError();
-						if (lastError == ERROR_IO_PENDING)
-						{
-							LPOVERLAPPED ovl = nullptr;
-							DWORD transferred = 0;
-							ULONG_PTR completionKey = 0;
-							const BOOL result = ::GetQueuedCompletionStatus(files[i].iocpSourceHandle, &transferred, &completionKey, &ovl, INFINITE);
-
-							if (!result)
-							{
-								readFileQueue.enqueue(std::move(files[i]));
-								printf("Error: GetQueuedCompletionStatus returned false for reading file\n");
-								continue;
-							}
-						}
-						else
-						{
-							printf("Error '%d' reading destination file.\n", lastError);
-						}
-					}
-
-					if (files[i].sourceOverlapped.InternalHigh != files[i].sourceFileSize)
-						printf("Size read mismatch\n");
-					*/
-
 					//Write it out
 					const BOOL writeResult = ::WriteFile(files[i]->destinationHandle
 						, files[i]->sourceContents
@@ -328,12 +260,12 @@ int write_multithreaded(const std::vector<FileData> &files)
 				}
 			} while (totalFilesRead < allFilesSize);
 
-		}, files.size() / READ_THREADS, files.size());
+		}, files.size() / WRITE_THREADS, files.size(), i - CREATE_THREADS);
 	}
 
-	for (size_t i = (CREATE_THREADS + READ_THREADS); i < (CREATE_THREADS + READ_THREADS + CLOSE_THREADS); ++i)
+	for (size_t i = (CREATE_THREADS + WRITE_THREADS); i < (CREATE_THREADS + WRITE_THREADS + CLOSE_THREADS); ++i)
 	{
-		programThreads[i] = std::thread([&totalFilesClosed, &closeFileQueue, &totalFilesRead](size_t max, size_t allFilesSize, size_t dirCount)
+		programThreads[i] = std::thread([&totalFilesClosed, &totalFilesRead, &closeFileQueue](size_t max, size_t allFilesSize, size_t dirCount, int curThread)
 		{
 			size_t actualDequeued = 0;
 			std::vector<IOCPFile*> files;
@@ -349,18 +281,17 @@ int write_multithreaded(const std::vector<FileData> &files)
 					totalFilesClosed++;
 				}
 			} while (totalFilesClosed < (allFilesSize - dirCount));
-		}, files.size() / CLOSE_THREADS, files.size(), dirCount);
+		}, files.size() / CLOSE_THREADS, files.size(), dirCount, i - (CREATE_THREADS + WRITE_THREADS));
 	}
 
-	for (size_t i = 0; i < CREATE_THREADS + READ_THREADS + CLOSE_THREADS; ++i)
+	for (size_t i = 0; i < CREATE_THREADS + WRITE_THREADS + CLOSE_THREADS; ++i)
 		programThreads[i].join();
 
-	if (createFileQueue.size_approx() || readFileQueue.size_approx())
+	if (createFileQueue.size_approx() || writeFileQueue.size_approx())
 		printf("Error: Threads exited with queues not-empty\n");
 
-	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-
-	std::cout << "Completed.\nTime difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << std::endl;
+	//std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+	//std::cout << "Completed.\nTime difference = " << std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count() << "[ms]" << std::endl;
 
 	return 0;
 }

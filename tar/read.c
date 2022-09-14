@@ -378,9 +378,6 @@ static void read_archive(struct bsdtar *bsdtar, char mode, struct archive *write
 				char *fileName = (char*) malloc(sizeof(char)*size);
 				memcpy(fileName, name, sizeof(char) * size);
 
-				if (strstr(fileName, "1DAxisComposite"))
-					printf("here\n");
-				
 				size_t contentSize = archive_entry_size(entry);
 				char* fileContents = (char*)malloc(sizeof(char) * contentSize);
 				memset(fileContents, 0, sizeof(char)* contentSize);
